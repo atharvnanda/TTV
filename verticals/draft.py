@@ -20,6 +20,7 @@ def generate_draft(
     niche: str = "general",
     platform: str = "shorts",
     provider: str | None = None,
+    _research_override: str | None = None,
 ) -> dict:
     """Research topic + generate niche-aware draft via LLM.
 
@@ -29,14 +30,16 @@ def generate_draft(
         niche: Niche profile name (loads from niches/<n>.yaml).
         platform: Target platform (shorts, reels, tiktok).
         provider: LLM provider (claude, gemini, openai, ollama).
+        _research_override: If supplied, skip DuckDuckGo and use this text
+            as the research block (used by generate_draft_from_text).
     """
     # Load niche intelligence
     profile = load_niche(niche)
     script_context = get_script_context(profile)
     visual_context = get_visual_context(profile)
 
-    # Research
-    research = research_topic(news)
+    # Research — skip DuckDuckGo when caller provides text directly
+    research = _research_override if _research_override is not None else research_topic(news)
 
     # Platform config
     platform_key = platform if platform != "all" else "shorts"
@@ -155,3 +158,25 @@ Output JSON exactly:
     draft["niche"] = niche
     draft["platform"] = platform
     return draft
+
+
+def generate_draft_from_text(
+    text: str,
+    niche: str = "general",
+    platform: str = "shorts",
+    provider: str | None = None,
+) -> dict:
+    """Generate a draft from raw user-supplied text — bypasses DuckDuckGo.
+
+    Identical to generate_draft() except the caller's text IS the research
+    block, so no network call is made.  Everything else (niche profile,
+    prompt structure, JSON parsing, validation) is reused verbatim.
+    """
+    return generate_draft(
+        news=text,
+        channel_context="",
+        niche=niche,
+        platform=platform,
+        provider=provider,
+        _research_override=text,   # injected below
+    )
