@@ -1,11 +1,11 @@
 import { useState } from 'react';
 
-import { Loader2, Sparkles, Settings2, AlignLeft, Type, Video } from 'lucide-react';
+import { Loader2, Sparkles, Settings2, AlignLeft, Type, Video, Link as LinkIcon } from 'lucide-react';
 import clsx from 'clsx';
 
 export default function StepDrafting({ onDraftComplete }) {
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState('topic'); // 'topic' | 'text'
+  const [mode, setMode] = useState('topic'); // 'topic' | 'text' | 'url'
   const [content, setContent] = useState('');
   
   // Settings with defaults
@@ -30,7 +30,7 @@ export default function StepDrafting({ onDraftComplete }) {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          input_mode: mode,
+          input_mode: mode === 'text' ? 'direct_text' : mode,
           content: content,
           niche: settings.niche.toLowerCase(),
           llm_provider: settings.llmProviders.toLowerCase(),
@@ -142,6 +142,16 @@ export default function StepDrafting({ onDraftComplete }) {
               <AlignLeft className="w-4 h-4" />
               Direct Text
             </button>
+            <button 
+              onClick={() => setMode('url')}
+              className={clsx(
+                "px-4 py-1.5 text-sm font-medium rounded-md transition-colors flex items-center gap-2",
+                mode === 'url' ? "bg-background shadow text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
+              )}
+            >
+              <LinkIcon className="w-4 h-4" />
+              URL
+            </button>
           </div>
 
           <div className="flex-1 min-h-[200px] flex flex-col relative group">
@@ -150,6 +160,16 @@ export default function StepDrafting({ onDraftComplete }) {
                   <input 
                     type="text" 
                     placeholder="E.g., How to build a custom PC in 2026..."
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    className="w-full flex-1 bg-secondary/10 border-border text-lg p-4 font-medium transition-all group-focus-within:bg-secondary/30"
+                  />
+                </div>
+              ) : mode === 'url' ? (
+                <div className="flex-1 flex flex-col">
+                  <input 
+                    type="url" 
+                    placeholder="https://www.indiatoday.in/..."
                     value={content}
                     onChange={(e) => setContent(e.target.value)}
                     className="w-full flex-1 bg-secondary/10 border-border text-lg p-4 font-medium transition-all group-focus-within:bg-secondary/30"

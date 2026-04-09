@@ -62,13 +62,14 @@ class DraftRequest(BaseModel):
     llm_provider: str | None = None          # claude / gemini / openai / ollama / groq
     image_provider: str | None = "gemini"    # stored in draft for /produce
     tts_provider: str | None = "edge_tts"    # stored in draft for /produce
-    input_mode: str = "topic"                # "topic" | "direct_text"
-    content: str                              # the topic string OR raw script text
+    input_mode: str = "topic"                # "topic" | "direct_text" | "url"
+    content: str                              # the topic string OR raw script text OR url
 
 
 class ProduceRequest(BaseModel):
     edited_script: str
     edited_broll_prompts: list[str]
+    scraped_images: list[str] = []
     tts_provider: str | None = "edge_tts"
     image_provider: str | None = "gemini"
     lang: str = "en"
@@ -99,6 +100,7 @@ def api_draft(req: DraftRequest) -> dict:
 
     - input_mode="topic"       → DuckDuckGo research + LLM
     - input_mode="direct_text" → bypass research, feed text straight to LLM
+    - input_mode="url"         → scrape article text and images, feed text to LLM
     """
     try:
         if req.input_mode == "direct_text":
@@ -107,6 +109,25 @@ def api_draft(req: DraftRequest) -> dict:
                 niche=req.niche,
                 provider=req.llm_provider,
             )
+        elif req.input_mode == "url":
+            from verticals.scrape import scrape_url
+            scrape_data = scrape_url(req.content)
+            
+            # --- Print first 2 lines to terminal ---
+            print("\n----- SCRAPED CONTENT (First 2 Lines) -----")
+            lines = [line for line in scrape_data["text"].split("\n") if line.strip()]
+            for line in lines[:2]:
+                print(line[:200] + "..." if len(line) > 200 else line)
+            if not lines:
+                print("<No text could be extracted from this URL>")
+            print("-------------------------------------------\n")
+
+            draft = generate_draft_from_text(
+                text=scrape_data["text"],
+                niche=req.niche,
+                provider=req.llm_provider,
+            )
+            draft["scraped_images"] = scrape_data["images"]
         else:
             draft = generate_draft(
                 news=req.content,
@@ -127,7 +148,8 @@ def api_draft(req: DraftRequest) -> dict:
         "data": {
             "script": draft.get("script", ""),
             "broll_prompts": draft.get("broll_prompts", []),
-            "job_id": job_id # Optional, but good to pass along just in case
+            "scraped_images": draft.get("scraped_images", []),
+            "job_id": job_id
         }
     }
 
@@ -164,10 +186,30 @@ def api_produce(req: ProduceRequest) -> dict:
         )
 
         # 1 — B-roll images
-        frames = generate_broll(
-            draft.get("broll_prompts", ["Cinematic landscape"] * 3),
-            work_dir,
-        )
+        from verticals.scrape import download_image
+        import uuid
+        
+        frames = []
+        scraped_images = req.scraped_images
+        
+        for i, img_url in enumerate(scraped_images):
+            if len(frames) >= 3:
+                break
+            try:
+                out_path = work_dir / f"scraped_{i}_{uuid.uuid4().hex[:6]}.jpg"
+                download_image(img_url, out_path)
+                frames.append(out_path)
+            except Exception as e:
+                print(f"Failed to download scraped image {img_url}: {e}")
+                
+        shortfall = 3 - len(frames)
+        if shortfall > 0:
+            prompts = draft.get("broll_prompts", ["Cinematic landscape"] * 3)
+            ai_frames = generate_broll(
+                prompts[:shortfall],
+                work_dir,
+            )
+            frames.extend(ai_frames)
 
         # 2 — Voiceover (TTS)
         voice_config = get_voice_config(profile, provider=tts_provider, lang=lang)
