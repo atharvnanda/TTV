@@ -16,14 +16,19 @@ def _generate_image_gemini(prompt: str, output_path: Path, api_key: str):
     """Generate image via Gemini native image generation (free tier compatible)."""
     url = (
         "https://generativelanguage.googleapis.com/v1beta"
-        "/models/gemini-2.0-flash-exp-image-generation:generateContent"
+        "/models/imagen-4.0-fast-generate-001:predict"
     )
     body = {
-        "contents": [{"parts": [{"text": f"Generate an image: {prompt}"}]}],
-        "generationConfig": {"responseModalities": ["IMAGE", "TEXT"]},
+        "instances": [
+            {"prompt": prompt}
+        ],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "9:16"
+        }
     }
     r = requests.post(
-        url, json=body, timeout=90,
+        url, json=body, timeout=30,
         headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
     )
     if r.status_code != 200:
@@ -34,12 +39,11 @@ def _generate_image_gemini(prompt: str, output_path: Path, api_key: str):
         raise RuntimeError(f"Gemini API {r.status_code}: {detail}")
     data = r.json()
     # Extract image from response parts
-    for part in data.get("candidates", [{}])[0].get("content", {}).get("parts", []):
-        if "inlineData" in part:
-            img_b64 = part["inlineData"]["data"]
-            output_path.write_bytes(base64.b64decode(img_b64))
-            return
-    raise RuntimeError("No image in Gemini response")
+    try:
+        img_b64 = data["predictions"][0]["bytesBase64Encoded"]
+        output_path.write_bytes(base64.b64decode(img_b64))
+    except (KeyError, IndexError):
+        raise RuntimeError("No image returned in the Gemini response")
 
 
 def _fallback_frame(i: int, out_dir: Path) -> Path:

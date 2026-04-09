@@ -10,7 +10,7 @@ from pathlib import Path
 
 import requests
 
-from .config import VOICE_ID_EN, VOICE_ID_HI, get_elevenlabs_key, run_cmd
+from .config import VOICE_ID_EN, VOICE_ID_HI, get_elevenlabs_key, run_cmd, get_sarvam_key
 from .log import log
 from .retry import with_retry
 
@@ -68,6 +68,50 @@ def _generate_edge_tts(script: str, out_dir: Path, lang: str, voice_override: st
         return out_path
     except Exception as e:
         raise RuntimeError(f"Edge TTS failed: {e}")
+    
+# ─────────────────────────────────────────────────────
+# Sarvam — Indian languages
+# ─────────────────────────────────────────────────────
+@with_retry(max_retries=3, base_delay=2.0)
+def _call_sarvam(script: str, lang: str, api_key: str) -> bytes:
+    """Call Sarvam AI TTS API."""
+    # Sarvam expects 'hi-IN' or 'en-IN'
+    target_lang = "hi-IN" if lang == "hi" else "en-IN"
+    
+    r = requests.post(
+        "https://api.sarvam.ai/text-to-speech",
+        headers={"api-subscription-key": api_key, "Content-Type": "application/json"},
+        json={
+            "inputs": [script],
+            "target_language_code": target_lang,
+            "speaker": "shubh",
+            "model": "bulbul:v3"
+        },
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"Sarvam API {r.status_code}: {r.text[:200]}")
+    
+    # Sarvam returns base64 encoded audio in the 'audios' list
+    import base64
+    audio_b64 = r.json()["audios"][0]
+    return base64.b64decode(audio_b64)
+
+def _generate_sarvam(script: str, out_dir: Path, lang: str) -> Path:
+    """Generate voiceover via Sarvam AI."""
+    from .config import get_sarvam_key
+    api_key = get_sarvam_key()
+    if not api_key:
+        raise RuntimeError("SARVAM_API_KEY not set in config.json or env")
+
+    out_path = out_dir / f"voiceover_{lang}.mp3"
+    log(f"Generating {lang} voiceover via Sarvam AI...")
+    
+    audio_bytes = _call_sarvam(script, lang, api_key)
+    out_path.write_bytes(audio_bytes)
+    
+    log(f"Sarvam voiceover saved: {out_path.name}")
+    return out_path
 
 
 # ─────────────────────────────────────────────────────
@@ -154,7 +198,9 @@ def get_tts_provider(name: str | None = None) -> str:
     from_cfg = load_config().get("TTS_PROVIDER", "").lower()
     if from_cfg:
         return from_cfg
-
+    
+    if get_sarvam_key():
+        return "sarvam"
     # Auto-detect: Edge TTS first (free, cross-platform)
     try:
         import edge_tts  # noqa: F401
@@ -213,6 +259,9 @@ def generate_voiceover(
             else:
                 log("Falling back to macOS say...")
                 return _generate_say(script, out_dir)
+    
+    if provider == "sarvam":
+        return _generate_sarvam(script, out_dir, lang)
 
     if provider == "elevenlabs":
         try:

@@ -205,6 +205,8 @@ def get_claude_backend() -> str:
 def get_elevenlabs_key() -> str:
     return _get_key("ELEVENLABS_API_KEY")
 
+def get_sarvam_key() -> str:
+    return _get_key("SARVAM_API_KEY")
 
 def get_gemini_key() -> str:
     return _get_key("GEMINI_API_KEY")

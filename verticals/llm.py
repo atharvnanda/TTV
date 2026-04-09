@@ -43,6 +43,8 @@ def get_provider(name: str | None = None) -> str:
         return "gemini"
     if os.environ.get("OPENAI_API_KEY") or cfg.get("OPENAI_API_KEY"):
         return "openai"
+    if os.environ.get("GROQ_API_KEY") or cfg.get("GROQ_API_KEY"):  # <--- ADD THIS
+        return "groq"
     if _ollama_available():
         return "ollama"
 
@@ -94,6 +96,8 @@ def call_llm(prompt: str, provider: str | None = None, max_tokens: int = 1500) -
         return _call_openai(prompt, max_tokens)
     elif provider == "ollama":
         return _call_ollama(prompt)
+    elif provider == "groq":                             # <--- ADD THIS
+        return _call_groq(prompt, max_tokens)
     else:
         raise ValueError(f"Unknown LLM provider: {provider}")
 
@@ -172,6 +176,36 @@ def _call_openai(prompt: str, max_tokens: int) -> str:
     )
     if r.status_code != 200:
         raise RuntimeError(f"OpenAI API {r.status_code}: {r.text[:300]}")
+
+    data = r.json()
+    return data["choices"][0]["message"]["content"].strip()
+
+def _call_groq(prompt: str, max_tokens: int) -> str:
+    """Call Groq API (OpenAI compatible)."""
+    import requests
+    import os
+    from .config import load_config
+
+    api_key = os.environ.get("GROQ_API_KEY") or load_config().get("GROQ_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("GROQ_API_KEY not set")
+
+    r = requests.post(
+        "https://api.groq.com/openai/v1/chat/completions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": "llama-3.3-70b-versatile", # You can change this to any Groq model
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+            "messages": [{"role": "user", "content": prompt}],
+        },
+        timeout=60,
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"Groq API {r.status_code}: {r.text[:300]}")
 
     data = r.json()
     return data["choices"][0]["message"]["content"].strip()

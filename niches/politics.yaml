@@ -4,7 +4,7 @@ description: "Profile for politics content."
 script:
   tone: "engaging, clear, conversational"
   pacing: "moderate"
-  word_count: "150 to 175"
+  word_count: "200 to 250"
   hooks:
     - id: breaking
       template: "This just happened in the world of politics."

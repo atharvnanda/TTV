@@ -59,9 +59,15 @@ def assemble_video(
     # Determine video filter (captions via ASS)
     vf_parts = []
     if ass_path and Path(ass_path).exists():
-        # Escape special chars in path for ffmpeg filter
-        escaped_ass = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-        vf_parts.append(f"ass={escaped_ass}")
+        import sys
+        if sys.platform == "win32":
+            # Windows: convert to forward slashes, escape colon, wrap in quotes
+            safe_ass_path = str(ass_path).replace("\\", "/").replace(":", "\\:")
+            vf_parts.append(f"ass='{safe_ass_path}'")
+        else:
+            # Mac/Linux standard escaping
+            escaped_ass = str(ass_path).replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+            vf_parts.append(f"ass={escaped_ass}")
     vf = ",".join(vf_parts) if vf_parts else None
 
     if music_path and Path(music_path).exists():
