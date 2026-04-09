@@ -91,7 +91,15 @@ def animate_frame(img_path: Path, out_path: Path, duration: float, effect: str =
     """Ken Burns animation on a single frame."""
     fps = 30
     frames = int(duration * fps)
-    w, h = VIDEO_WIDTH, VIDEO_HEIGHT
+    
+    # Read width/height directly from the image so it perfectly matches
+    from PIL import Image
+    with Image.open(img_path) as im:
+        w, h = im.size
+
+    # Ensure w and h are even for ffmpeg libx26x
+    w = w if w % 2 == 0 else w - 1
+    h = h if h % 2 == 0 else h - 1
 
     if effect == "zoom_in":
         vf = (

@@ -21,6 +21,7 @@ export default function StepReview({ draftData, onProduceComplete }) {
       const payload = {
         edited_script: script,
         edited_broll_prompts: brollPrompts,
+        scraped_images: draftData?.draft?.scraped_images || [],
         tts_provider: draftData.settings.ttsProvider.toLowerCase(),
         image_provider: draftData.settings.imageProvider.toLowerCase(),
       };

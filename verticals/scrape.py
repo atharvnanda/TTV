@@ -1,6 +1,7 @@
 import requests
 from bs4 import BeautifulSoup
 from pathlib import Path
+import urllib.parse
 
 def scrape_url(url: str) -> dict:
     """
@@ -43,20 +44,47 @@ def scrape_url(url: str) -> dict:
             
     combined_text = "\n".join(text_elements)
     
-    # 3. Extract Images (<img role="image">)
+    # 3. Extract Images
     image_list = []
-    # User specified: ignore spans. Beautiful soup automatically pulls the img tags only.
+    
+    # Primary: usually the highest quality cover image is in the meta tag
+    meta_image = soup.find("meta", property="og:image")
+    if meta_image and meta_image.get("content"):
+        image_list.append(urllib.parse.urljoin(url, meta_image.get("content")))
+        
+    # User specified: extract img tags with role="image"
     for img in soup.find_all("img", role="image"):
         src = img.get("src")
-        if src and src not in image_list:
-            image_list.append(src)
+        if src and not src.startswith("data:"):
+            abs_src = urllib.parse.urljoin(url, src)
+            if abs_src not in image_list:
+                image_list.append(abs_src)
             
-    # FALLBACK for images
-    if not image_list:
+    # FALLBACK for images: get standard article images, but filter out layout junk and sidebar noise
+    # We cap at 5 total images to ensure we only get the most relevant ones at the top
+    if len(image_list) < 5:
         for img in soup.find_all("img"):
+            if len(image_list) >= 5:
+                break
+                
             src = img.get("src")
-            if src and src not in image_list:
-                image_list.append(src)
+            if not src or src.startswith("data:"):
+                continue
+                
+            abs_src = urllib.parse.urljoin(url, src)
+            lower_src = abs_src.lower()
+            
+            # Expanded heuristic to weed out author profiles, related videos, icons, etc.
+            # India Today often uses 'medium_crop' or 'author' for irrelevant sidebar images
+            junk_keywords = [
+                'logo', 'icon', 'profile', 'avatar', 'svg', 'blank', '.gif', '1x1', 'default',
+                'author', 'video', 'related', 'newsletter', 'newsletter-icon', 'sprite'
+            ]
+            if any(bad in lower_src for bad in junk_keywords):
+                continue
+                
+            if abs_src not in image_list:
+                image_list.append(abs_src)
             
     return {
         "text": combined_text,

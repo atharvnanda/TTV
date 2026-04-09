@@ -113,14 +113,13 @@ def api_draft(req: DraftRequest) -> dict:
             from verticals.scrape import scrape_url
             scrape_data = scrape_url(req.content)
             
-            # --- Print first 2 lines to terminal ---
-            print("\n----- SCRAPED CONTENT (First 2 Lines) -----")
-            lines = [line for line in scrape_data["text"].split("\n") if line.strip()]
-            for line in lines[:2]:
-                print(line[:200] + "..." if len(line) > 200 else line)
-            if not lines:
-                print("<No text could be extracted from this URL>")
-            print("-------------------------------------------\n")
+            # --- Print stats to terminal ---
+            print("\n----- SCRAPE STATS -----")
+            word_count = len(scrape_data["text"].split())
+            image_count = len(scrape_data["images"])
+            print(f"Words extracted: {word_count}")
+            print(f"Images extracted: {image_count}")
+            print("------------------------\n")
 
             draft = generate_draft_from_text(
                 text=scrape_data["text"],
@@ -188,19 +187,52 @@ def api_produce(req: ProduceRequest) -> dict:
         # 1 — B-roll images
         from verticals.scrape import download_image
         import uuid
+        from PIL import Image, ImageOps
+        from verticals.config import VIDEO_WIDTH, VIDEO_HEIGHT
         
         frames = []
         scraped_images = req.scraped_images
+        downloaded_imgs = []
         
         for i, img_url in enumerate(scraped_images):
-            if len(frames) >= 3:
+            if len(downloaded_imgs) >= 3:
                 break
+                
+            if img_url.startswith("data:"):
+                continue
+
             try:
                 out_path = work_dir / f"scraped_{i}_{uuid.uuid4().hex[:6]}.jpg"
                 download_image(img_url, out_path)
-                frames.append(out_path)
+                
+                # Check for valid image formatting
+                img = Image.open(out_path).convert("RGB")
+                orig_w, orig_h = img.size
+                
+                # Filter out absurdly small images (e.g. 10x10 tracking pixels)
+                if orig_w < 100 or orig_h < 100:
+                    raise ValueError(f"Image too small: {orig_w}x{orig_h}")
+                
+                downloaded_imgs.append((out_path, img))
             except Exception as e:
-                print(f"Failed to download scraped image {img_url}: {e}")
+                # Catch invalid PIL parses, timeouts, connection blocks, or tiny tracked images.
+                print(f"Failed to use scraped image {img_url[:60]}... : {e}")
+                
+        # Step 2: Establish Master Resolution
+        if downloaded_imgs:
+            first_img = downloaded_imgs[0][1]
+            master_w = first_img.width if first_img.width % 2 == 0 else first_img.width - 1
+            master_h = first_img.height if first_img.height % 2 == 0 else first_img.height - 1
+            print(f"Set dynamically master resolution to {master_w}x{master_h}")
+        else:
+            master_w, master_h = VIDEO_WIDTH, VIDEO_HEIGHT
+            
+        # Step 3: Pad all downloaded images to the master resolution
+        for out_path, img in downloaded_imgs:
+            # Resize with padding (letterbox) to fit perfectly within master_w x master_h without cropping
+            padded = ImageOps.pad(img, (master_w, master_h), color=(0, 0, 0))
+            padded.save(out_path)
+            frames.append(out_path)
                 
         shortfall = 3 - len(frames)
         if shortfall > 0:
@@ -209,6 +241,12 @@ def api_produce(req: ProduceRequest) -> dict:
                 prompts[:shortfall],
                 work_dir,
             )
+            # Pad AI frames to master resolution too
+            for af in ai_frames:
+                img = Image.open(af).convert("RGB")
+                padded = ImageOps.pad(img, (master_w, master_h), color=(0, 0, 0))
+                padded.save(af)
+                
             frames.extend(ai_frames)
 
         # 2 — Voiceover (TTS)
