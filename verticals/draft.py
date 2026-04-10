@@ -92,9 +92,16 @@ def generate_draft(
     else:
         lang_instruction = "Write the script in English."
 
-    prompt = f"""You are writing a {platform_label} script.
-Target script length: approximately {max_words} words.
-(STRICT: Spoken script content must be around this length. Ignore any other word count instructions below.)
+    # Calculate a tight range for the LLM
+    try:
+        m = int(max_words)
+        word_range = f"{m - 10} to {m + 10}"
+    except:
+        word_range = max_words
+
+    prompt = f"""You are writing a detailed, informative {platform_label} script.
+The script MUST be between {word_range} words long.
+(CRITICAL: Provide a full, rich narration with depth and facts. Do NOT just give a headline or a 1-sentence summary. You must utilize the length to explain the topic thoroughly.)
 {channel_note}
 
 LANGUAGE: {lang_instruction}
