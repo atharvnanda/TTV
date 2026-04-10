@@ -33,7 +33,7 @@ export default function StepDrafting({ onDraftComplete }) {
           input_mode: mode === 'text' ? 'direct_text' : mode,
           content: content,
           niche: 'general',
-          llm_provider: 'openai',
+          llm_provider: 'groq',
           image_provider: 'gemini',
           tts_provider: 'elevenlabs',
           target_words: selectedDuration?.words || '180-200',
@@ -50,7 +50,7 @@ export default function StepDrafting({ onDraftComplete }) {
           draft: resJson.data,
           settings: {
             niche: 'general',
-            llmProvider: 'openai',
+            llmProvider: 'groq',
             imageProvider: 'gemini',
             ttsProvider: 'elevenlabs',
             duration: duration,

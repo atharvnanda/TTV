@@ -14,7 +14,7 @@ script:
       when: "recent event"
     - id: explainer
       template: "Let me explain {topic} in 60 seconds."
-      when: "complex topic"
+      when: "complex topic requiring explanation"
     - id: question
       template: "Why is everyone talking about {topic}? Here's the real story."
       when: "trending topic"

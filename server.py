@@ -60,7 +60,7 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 class DraftRequest(BaseModel):
     niche: str = "general"
-    llm_provider: str | None = "openai"          # claude / gemini / openai / ollama / groq
+    llm_provider: str | None = "groq"          # claude / gemini / openai / ollama / groq
     image_provider: str | None = "gemini"    # stored in draft for /produce
     tts_provider: str | None = "elevenlabs"      # stored in draft for /produce
     input_mode: str = "topic"                # "topic" | "direct_text" | "url"
