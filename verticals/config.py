@@ -53,12 +53,19 @@ def write_secret_file(path: Path, content: str):
 
 
 def run_cmd(cmd, check=True, capture=False, **kwargs):
+    """Run a command. If it fails, raise RuntimeError with stderr."""
+    # Always capture on check=True so we can provide error details
+    r = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    
+    if check and r.returncode != 0:
+        # Include cmd for debugging
+        cmd_str = " ".join(map(str, cmd))
+        error_msg = f"Command failed: {cmd_str}\n\nSTDOUT: {r.stdout}\n\nSTDERR: {r.stderr}"
+        raise RuntimeError(error_msg)
+    
     if capture:
-        r = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
-        if check and r.returncode != 0:
-            raise RuntimeError(r.stderr)
         return r
-    subprocess.run(cmd, check=check, **kwargs)
+    return None
 
 
 def extract_keywords(text: str) -> str:
@@ -200,6 +207,22 @@ def get_claude_backend() -> str:
         "  1. Set ANTHROPIC_API_KEY in env or ~/.verticals/config.json\n"
         "  2. Log in to Claude Code (claude login) with a Claude Max subscription"
     )
+
+
+def get_best_h264_encoder() -> str:
+    """Detect the best hardware-accelerated H.264 encoder available."""
+    try:
+        r = subprocess.run(["ffmpeg", "-encoders"], capture_output=True, text=True)
+        encoders = r.stdout
+        if "h264_nvenc" in encoders:
+            return "h264_nvenc"
+        if "h264_amf" in encoders:
+            return "h264_amf"
+        if "h264_qsv" in encoders:
+            return "h264_qsv"
+        return "libx264"
+    except Exception:
+        return "libx264"
 
 
 def get_elevenlabs_key() -> str:
