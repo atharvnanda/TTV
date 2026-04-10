@@ -212,9 +212,10 @@ def api_produce(req: ProduceRequest) -> dict:
         import uuid
         from PIL import Image, ImageOps
 
-        # Step 1: Download & validate scraped images (cap at 3)
+        # Step 1: Download & validate scraped images (cap at 3 unique ones)
         scraped_images = req.scraped_images
         downloaded_imgs = []
+        seen_sizes = set()
 
         for i, img_url in enumerate(scraped_images):
             if len(downloaded_imgs) >= 3:
@@ -231,6 +232,13 @@ def api_produce(req: ProduceRequest) -> dict:
                 img = Image.open(out_path).convert("RGB")
                 if img.width < 100 or img.height < 100:
                     raise ValueError(f"Image too small: {img.width}x{img.height}")
+
+                # Deduplicate by file size (catch OG vs Body duplicates that URL normalization missed)
+                file_size = out_path.stat().st_size
+                if file_size in seen_sizes:
+                    print(f"Skipping duplicate image (same size): {img_url[:60]}...")
+                    continue
+                seen_sizes.add(file_size)
 
                 # Pad to master resolution (letterbox)
                 padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))

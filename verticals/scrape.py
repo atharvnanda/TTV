@@ -2,6 +2,22 @@ import requests
 from bs4 import BeautifulSoup
 from pathlib import Path
 import urllib.parse
+import re
+
+def _normalize_url(url: str) -> str:
+    """Strip query parameters and fragments to identify duplicate images.
+    Specifically handles Next.js image optimization URLs by extracting the underlying source.
+    """
+    # 1. Handle Next.js /_next/image wrapper
+    if "/_next/image" in url:
+        parsed = urllib.parse.urlparse(url)
+        query = urllib.parse.parse_qs(parsed.query)
+        if "url" in query:
+            # Extract the nested URL and resolve it
+            url = query["url"][0]
+
+    # 2. Strip standard query params and fragments
+    return url.split('?')[0].split('#')[0].strip()
 
 def scrape_url(url: str) -> dict:
     """
@@ -46,45 +62,77 @@ def scrape_url(url: str) -> dict:
     
     # 3. Extract Images
     image_list = []
+    normalized_seen = set()
     
     # Primary: usually the highest quality cover image is in the meta tag
     meta_image = soup.find("meta", property="og:image")
     if meta_image and meta_image.get("content"):
-        image_list.append(urllib.parse.urljoin(url, meta_image.get("content")))
+        img_url = urllib.parse.urljoin(url, meta_image.get("content"))
+        norm_url = _normalize_url(img_url)
+        image_list.append(img_url)
+        normalized_seen.add(norm_url)
         
-    # User specified: extract img tags with role="image"
-    for img in soup.find_all("img", role="image"):
+    # Container-based scoping: search only inside the main content block to avoid sidebars/authors
+    main_section = (
+        soup.find("main", class_="main__content") or 
+        soup.find("div", class_="content__section") or
+        soup.find("article") or
+        soup
+    )
+
+    # 4. Extract img tags with role="image" (high priority)
+    for img in main_section.find_all("img", role="image"):
         src = img.get("src")
         if src and not src.startswith("data:"):
             abs_src = urllib.parse.urljoin(url, src)
-            if abs_src not in image_list:
+            norm_src = _normalize_url(abs_src)
+            if norm_src not in normalized_seen:
                 image_list.append(abs_src)
+                normalized_seen.add(norm_src)
             
     # FALLBACK for images: get standard article images, but filter out layout junk and sidebar noise
-    # We cap at 5 total images to ensure we only get the most relevant ones at the top
-    if len(image_list) < 5:
-        for img in soup.find_all("img"):
-            if len(image_list) >= 5:
+    # We cap at 10 total candidate images to ensure we have enough after size filtering in server.py
+    if len(image_list) < 10:
+        for img in main_section.find_all("img"):
+            if len(image_list) >= 10:
                 break
                 
             src = img.get("src")
+            # Also check data-src or original-src which news sites sometimes use for lazy loading
+            src = src or img.get("data-src") or img.get("data-original")
+            
             if not src or src.startswith("data:"):
                 continue
                 
             abs_src = urllib.parse.urljoin(url, src)
+            norm_src = _normalize_url(abs_src)
+            
+            # Skip if already seen (via normalized URL)
+            if norm_src in normalized_seen:
+                continue
+
+            # Filtering heuristics
             lower_src = abs_src.lower()
             
-            # Expanded heuristic to weed out author profiles, related videos, icons, etc.
-            # India Today often uses 'medium_crop' or 'author' for irrelevant sidebar images
             junk_keywords = [
                 'logo', 'icon', 'profile', 'avatar', 'svg', 'blank', '.gif', '1x1', 'default',
-                'author', 'video', 'related', 'newsletter', 'newsletter-icon', 'sprite'
+                'author', 'video', 'related', 'newsletter', 'newsletter-icon', 'sprite',
+                'reporter', 'editor', 'staff', 'pwa-data', 'thumb-'
             ]
             if any(bad in lower_src for bad in junk_keywords):
                 continue
                 
-            if abs_src not in image_list:
-                image_list.append(abs_src)
+            # Filter by HTML attributes if present (skip small author icons early)
+            try:
+                w = int(img.get("width", 201))
+                h = int(img.get("height", 201))
+                if w < 200 or h < 200:
+                    continue
+            except (ValueError, TypeError):
+                pass
+
+            image_list.append(abs_src)
+            normalized_seen.add(norm_src)
             
     return {
         "text": combined_text,
