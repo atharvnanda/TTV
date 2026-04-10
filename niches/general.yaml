@@ -25,9 +25,9 @@ script:
       template: "Here's a story you haven't heard yet."
       when: "narrative driven topic"
   cta_variants:
-    - "Follow for more."
-    - "Subscribe for daily updates."
-    - "What do you think? Comment below."
+    - “Bringing you facts that matter.”
+    - “Stay informed with more updates.”
+    - "What do you think about this?"
   forbidden_phrases:
     - "like and subscribe"
     - "smash that bell"

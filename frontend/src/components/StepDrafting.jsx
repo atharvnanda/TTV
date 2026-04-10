@@ -33,9 +33,9 @@ export default function StepDrafting({ onDraftComplete }) {
           input_mode: mode === 'text' ? 'direct_text' : mode,
           content: content,
           niche: 'general',
-          llm_provider: 'groq',
+          llm_provider: 'openai',
           image_provider: 'gemini',
-          tts_provider: 'sarvam',
+          tts_provider: 'elevenlabs',
           target_words: selectedDuration?.words || '180-200',
         })
       });
@@ -50,9 +50,9 @@ export default function StepDrafting({ onDraftComplete }) {
           draft: resJson.data,
           settings: {
             niche: 'general',
-            llmProvider: 'groq',
+            llmProvider: 'openai',
             imageProvider: 'gemini',
-            ttsProvider: 'sarvam',
+            ttsProvider: 'elevenlabs',
           }
         });
       }

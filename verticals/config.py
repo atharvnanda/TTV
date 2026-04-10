@@ -25,8 +25,8 @@ VIDEO_HEIGHT = 1080
 # ─────────────────────────────────────────────────────
 # Voice config — override via env or config.json
 # ─────────────────────────────────────────────────────
-VOICE_ID_EN = os.environ.get("VOICE_ID_EN", "JBFqnCBsd6RMkjVDRZzb")  # George
-VOICE_ID_HI = os.environ.get("VOICE_ID_HI", "JBFqnCBsd6RMkjVDRZzb")
+VOICE_ID_EN = os.environ.get("VOICE_ID_EN", "mCQMfsqGDT6IDkEKR20a")  # Jeevan
+VOICE_ID_HI = os.environ.get("VOICE_ID_HI", "UtP0hVLla4BbQeb6yfeu")  # Shweta
 
 STOPWORDS = {
     "a", "an", "the", "and", "or", "but", "in", "on", "at", "to", "for", "of",

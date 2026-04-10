@@ -60,9 +60,9 @@ app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 class DraftRequest(BaseModel):
     niche: str = "general"
-    llm_provider: str | None = None          # claude / gemini / openai / ollama / groq
+    llm_provider: str | None = "openai"          # claude / gemini / openai / ollama / groq
     image_provider: str | None = "gemini"    # stored in draft for /produce
-    tts_provider: str | None = "sarvam"      # stored in draft for /produce
+    tts_provider: str | None = "elevenlabs"      # stored in draft for /produce
     input_mode: str = "topic"                # "topic" | "direct_text" | "url"
     content: str                              # the topic string OR raw script text OR url
     target_words: str = "180-200"             # word count range for LLM script
@@ -72,7 +72,7 @@ class ProduceRequest(BaseModel):
     edited_script: str
     edited_broll_prompts: list[str]
     scraped_images: list[str] = []
-    tts_provider: str | None = "sarvam"
+    tts_provider: str | None = "elevenlabs"
     image_provider: str | None = "gemini"
     lang: str = "en"
 

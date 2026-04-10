@@ -156,7 +156,7 @@ def _call_openai(prompt: str, max_tokens: int) -> str:
     import requests
 
     from .config import load_config
-    api_key = os.environ.get("OPENAI_API_KEY") or load_config().get("OPENAI_API_KEY", "")
+    api_key = load_config().get("OPENAI_API_KEY", "")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
 

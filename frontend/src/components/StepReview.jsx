@@ -22,7 +22,7 @@ export default function StepReview({ draftData, onProduceComplete }) {
         edited_script: script,
         edited_broll_prompts: brollPrompts,
         scraped_images: draftData?.draft?.scraped_images || [],
-        tts_provider: 'sarvam',
+        tts_provider: 'elevenlabs',
         image_provider: 'gemini',
         lang: draftData?.draft?.lang || 'en',
       };

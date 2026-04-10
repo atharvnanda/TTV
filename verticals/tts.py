@@ -78,7 +78,7 @@ def _call_sarvam(script: str, lang: str, api_key: str) -> bytes:
     # Sarvam expects 'hi-IN' or 'en-IN'
     target_lang = "hi-IN" if lang == "hi" else "en-IN"
     # Use different speakers per language for natural-sounding output
-    speaker = "shubh" if lang == "hi" else "rahul"
+    speaker = "rahul" if lang == "hi" else "shubh"
     
     r = requests.post(
         "https://api.sarvam.ai/text-to-speech",
