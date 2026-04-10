@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 
-import { Loader2, Clapperboard, FileText, Image as ImageIcon } from 'lucide-react';
+import { Loader2, Clapperboard, FileText, Image as ImageIcon, Clock } from 'lucide-react';
 
 export default function StepReview({ draftData, onProduceComplete }) {
   const [loading, setLoading] = useState(false);
@@ -99,7 +99,15 @@ export default function StepReview({ draftData, onProduceComplete }) {
 
       </div>
 
-      <div className="flex justify-end pt-4">
+      <div className="flex flex-col sm:flex-row items-center justify-end gap-4 pt-4">
+        {/* Estimated Time Callout */}
+        <div className="flex items-center gap-2 px-4 py-2 bg-yellow-400/10 border border-yellow-400/20 rounded-lg">
+          <Clock className="w-4 h-4 text-yellow-500" />
+          <span className="text-sm font-medium text-yellow-500/90">
+            Est. Generation: {getEstimate(draftData?.settings?.duration)}
+          </span>
+        </div>
+
         <button 
           onClick={handleProduce}
           disabled={loading || !script.trim()}
@@ -120,4 +128,16 @@ export default function StepReview({ draftData, onProduceComplete }) {
       </div>
     </div>
   );
+}
+
+// Map duration to estimate strings
+function getEstimate(duration) {
+  const estimates = {
+    '20-25': '35–40 seconds',
+    '45-50': '1 min to 1 min 15s',
+    '60':    '1 min 15s to 1 min 35s',
+    '90':    '1 min 45s to 2 min 5s',
+    '120':   '2 min 15s to 2 min 35s'
+  };
+  return estimates[duration] || 'Around 1-2 minutes';
 }

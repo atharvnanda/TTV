@@ -53,6 +53,7 @@ export default function StepDrafting({ onDraftComplete }) {
             llmProvider: 'openai',
             imageProvider: 'gemini',
             ttsProvider: 'elevenlabs',
+            duration: duration,
           }
         });
       }

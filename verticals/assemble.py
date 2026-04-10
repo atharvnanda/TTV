@@ -93,7 +93,7 @@ def assemble_video(
         return str(p).replace("\\", "/")
     
     txt_content = "\n".join([f"file '{_esc(p)}'" for p in segments])
-    concat_txt.write_text(txt_content)
+    concat_txt.write_text(txt_content, encoding="utf-8")
 
     merged_video = out_dir / "merged_no_audio.mp4"
     run_cmd([
