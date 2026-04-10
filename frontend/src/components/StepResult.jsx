@@ -6,7 +6,7 @@ export default function StepResult({ resultData, onReset }) {
   const videoUrl = resultData?.video_url;
 
   return (
-    <div className="max-w-2xl mx-auto w-full space-y-6">
+    <div className="max-w-4xl mx-auto w-full space-y-6">
       <div className="text-center space-y-2">
         <div className="inline-flex items-center justify-center p-3 bg-green-500/20 rounded-2xl mb-4">
           <CheckCircle2 className="w-8 h-8 text-green-500" />
@@ -18,18 +18,18 @@ export default function StepResult({ resultData, onReset }) {
       <div className="bg-card border border-border p-4 sm:p-8 rounded-2xl shadow-xl shadow-black/50 space-y-6 flex flex-col items-center">
         
         {videoUrl ? (
-          <div className="w-[320px] aspect-[9/16] bg-black rounded-lg overflow-hidden border border-border/50 shadow-lg shrink-0">
+          <div className="w-full max-w-[800px] aspect-video bg-black rounded-lg overflow-hidden border border-border/50 shadow-lg shrink-0">
             <video 
               controls 
               autoPlay 
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain"
               src={videoUrl}
             >
               Your browser does not support the video tag.
             </video>
           </div>
         ) : (
-          <div className="w-[320px] aspect-[9/16] bg-secondary/20 rounded-lg flex items-center justify-center border border-border/50 text-muted-foreground">
+          <div className="w-full max-w-[800px] aspect-video bg-secondary/20 rounded-lg flex items-center justify-center border border-border/50 text-muted-foreground">
             No video URL provided
           </div>
         )}

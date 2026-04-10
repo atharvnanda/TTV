@@ -22,8 +22,9 @@ export default function StepReview({ draftData, onProduceComplete }) {
         edited_script: script,
         edited_broll_prompts: brollPrompts,
         scraped_images: draftData?.draft?.scraped_images || [],
-        tts_provider: draftData.settings.ttsProvider.toLowerCase(),
-        image_provider: draftData.settings.imageProvider.toLowerCase(),
+        tts_provider: 'sarvam',
+        image_provider: 'gemini',
+        lang: draftData?.draft?.lang || 'en',
       };
 
       const response = await fetch('http://localhost:8000/api/produce', {

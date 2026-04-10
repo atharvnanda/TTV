@@ -20,6 +20,8 @@ def generate_draft(
     niche: str = "general",
     platform: str = "shorts",
     provider: str | None = None,
+    lang: str = "en",
+    target_words: str | None = None,
     _research_override: str | None = None,
 ) -> dict:
     """Research topic + generate niche-aware draft via LLM.
@@ -29,7 +31,9 @@ def generate_draft(
         channel_context: Optional channel context.
         niche: Niche profile name (loads from niches/<n>.yaml).
         platform: Target platform (shorts, reels, tiktok).
-        provider: LLM provider (claude, gemini, openai, ollama).
+        provider: LLM provider (claude, gemini, openai, ollama, groq).
+        lang: Language code ('en' or 'hi').
+        target_words: Word count range (e.g. '180-200'). Overrides platform default.
         _research_override: If supplied, skip DuckDuckGo and use this text
             as the research block (used by generate_draft_from_text).
     """
@@ -44,7 +48,8 @@ def generate_draft(
     # Platform config
     platform_key = platform if platform != "all" else "shorts"
     platform_cfg = PLATFORM_CONFIGS.get(platform_key, PLATFORM_CONFIGS["shorts"])
-    max_words = platform_cfg["max_script_words"]
+    # Use target_words if provided, otherwise fall back to platform default
+    max_words = target_words if target_words else str(platform_cfg["max_script_words"])
     platform_label = platform_cfg["label"]
 
     # Build visual guidance for b-roll prompts
@@ -81,7 +86,18 @@ def generate_draft(
 
     channel_note = f"\nChannel context: {channel_context}" if channel_context else ""
 
-    prompt = f"""You are writing a {platform_label} script ({max_words} words max, ~60-90 seconds spoken).{channel_note}
+    # Language instruction for the LLM
+    if lang == "hi":
+        lang_instruction = "Write the ENTIRE script in Hindi (Devanagari script). All spoken text must be in Hindi."
+    else:
+        lang_instruction = "Write the script in English."
+
+    prompt = f"""You are writing a {platform_label} script.
+Target script length: approximately {max_words} words.
+(STRICT: Spoken script content must be around this length. Ignore any other word count instructions below.)
+{channel_note}
+
+LANGUAGE: {lang_instruction}
 
 {script_context}
 
@@ -100,6 +116,7 @@ RULES:
 - Pick the most appropriate hook pattern for this specific topic
 - Use one of the CTA OPTIONS at the end
 - Never use any of the NEVER USE phrases
+- The 'script' field must contain the full spoken narration, not just a summary, title, or headline.
 - B-roll prompts must follow the visual guidance (style, mood, preferred subjects)
 
 Output JSON exactly:
@@ -165,6 +182,8 @@ def generate_draft_from_text(
     niche: str = "general",
     platform: str = "shorts",
     provider: str | None = None,
+    lang: str = "en",
+    target_words: str | None = None,
 ) -> dict:
     """Generate a draft from raw user-supplied text — bypasses DuckDuckGo.
 
@@ -178,5 +197,7 @@ def generate_draft_from_text(
         niche=niche,
         platform=platform,
         provider=provider,
+        lang=lang,
+        target_words=target_words,
         _research_override=text,   # injected below
     )

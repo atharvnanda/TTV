@@ -24,7 +24,7 @@ def _generate_image_gemini(prompt: str, output_path: Path, api_key: str):
         ],
         "parameters": {
             "sampleCount": 1,
-            "aspectRatio": "9:16"
+            "aspectRatio": "16:9"
         }
     }
     r = requests.post(
@@ -49,7 +49,7 @@ def _generate_image_gemini(prompt: str, output_path: Path, api_key: str):
 def _fallback_frame(i: int, out_dir: Path) -> Path:
     """Solid colour fallback frame if Gemini fails."""
     colors = [(20, 20, 60), (40, 10, 40), (10, 30, 50)]
-    img = Image.new("RGB", (VIDEO_WIDTH, VIDEO_HEIGHT), colors[i % len(colors)])
+    img = Image.new("RGB", (1920, 1080), colors[i % len(colors)])
     path = out_dir / f"broll_{i}.png"
     img.save(path)
     return path
@@ -69,7 +69,7 @@ def generate_broll(prompts: list, out_dir: Path) -> list[Path]:
 
             # Resize/crop to 9:16 portrait
             img = Image.open(out_path).convert("RGB")
-            target_w, target_h = VIDEO_WIDTH, VIDEO_HEIGHT
+            target_w, target_h = 1920, 1080
             orig_w, orig_h = img.size
             scale = max(target_w / orig_w, target_h / orig_h)
             new_w, new_h = int(orig_w * scale), int(orig_h * scale)

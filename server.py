@@ -23,6 +23,7 @@ from pydantic import BaseModel
 # ── verticals internals ────────────────────────────────────────────────────────
 from verticals.config import DRAFTS_DIR, MEDIA_DIR
 from verticals.draft import generate_draft, generate_draft_from_text
+from verticals.lang_detect import detect_language
 from verticals.state import PipelineState
 from verticals.broll import generate_broll
 from verticals.tts import generate_voiceover
@@ -61,16 +62,17 @@ class DraftRequest(BaseModel):
     niche: str = "general"
     llm_provider: str | None = None          # claude / gemini / openai / ollama / groq
     image_provider: str | None = "gemini"    # stored in draft for /produce
-    tts_provider: str | None = "edge_tts"    # stored in draft for /produce
+    tts_provider: str | None = "sarvam"      # stored in draft for /produce
     input_mode: str = "topic"                # "topic" | "direct_text" | "url"
     content: str                              # the topic string OR raw script text OR url
+    target_words: str = "180-200"             # word count range for LLM script
 
 
 class ProduceRequest(BaseModel):
     edited_script: str
     edited_broll_prompts: list[str]
     scraped_images: list[str] = []
-    tts_provider: str | None = "edge_tts"
+    tts_provider: str | None = "sarvam"
     image_provider: str | None = "gemini"
     lang: str = "en"
 
@@ -104,11 +106,19 @@ def api_draft(req: DraftRequest) -> dict:
     """
     try:
         if req.input_mode == "direct_text":
+            # Detect language from user-provided text
+            lang = detect_language(req.content)
+            print(f"Detected language: {lang}")
+
             draft = generate_draft_from_text(
                 text=req.content,
                 niche=req.niche,
                 provider=req.llm_provider,
+                lang=lang,
+                target_words=req.target_words,
             )
+            draft["lang"] = lang
+
         elif req.input_mode == "url":
             from verticals.scrape import scrape_url
             scrape_data = scrape_url(req.content)
@@ -119,20 +129,32 @@ def api_draft(req: DraftRequest) -> dict:
             image_count = len(scrape_data["images"])
             print(f"Words extracted: {word_count}")
             print(f"Images extracted: {image_count}")
+
+            # Detect language from scraped text
+            lang = detect_language(scrape_data["text"])
+            print(f"Detected language: {lang}")
             print("------------------------\n")
 
             draft = generate_draft_from_text(
                 text=scrape_data["text"],
                 niche=req.niche,
                 provider=req.llm_provider,
+                lang=lang,
+                target_words=req.target_words,
             )
             draft["scraped_images"] = scrape_data["images"]
+            draft["lang"] = lang
+
         else:
+            # Topic mode — default to English
             draft = generate_draft(
                 news=req.content,
                 niche=req.niche,
                 provider=req.llm_provider,
+                target_words=req.target_words,
             )
+            draft["lang"] = "en"
+
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
@@ -148,6 +170,7 @@ def api_draft(req: DraftRequest) -> dict:
             "script": draft.get("script", ""),
             "broll_prompts": draft.get("broll_prompts", []),
             "scraped_images": draft.get("scraped_images", []),
+            "lang": draft.get("lang", "en"),
             "job_id": job_id
         }
     }
@@ -164,14 +187,16 @@ def api_produce(req: ProduceRequest) -> dict:
     lang = req.lang
     draft = {
         "script": req.edited_script,
-        "script_hi": req.edited_script if lang == "hi" else "",
         "broll_prompts": req.edited_broll_prompts,
     }
-    job_id = draft.get("job_id") or _new_job_id()
+    job_id = _new_job_id()
 
     # Resolve providers — frontend selection wins over draft defaults
-    tts_provider = req.tts_provider or draft.get("tts_provider") or "edge_tts"
-    niche_name = draft.get("niche", "general")
+    tts_provider = req.tts_provider or "sarvam"
+    niche_name = "general"
+
+    # Fixed landscape master resolution
+    MASTER_W, MASTER_H = 1920, 1080
 
     try:
         profile = load_niche(niche_name)
@@ -179,75 +204,70 @@ def api_produce(req: ProduceRequest) -> dict:
         work_dir = MEDIA_DIR / f"work_{job_id}_{lang}"
         work_dir.mkdir(parents=True, exist_ok=True)
 
-        script = (
-            draft.get("script_hi") if lang == "hi"
-            else draft.get("script", "")
-        )
+        # Use the script as-is (already in the correct language from /api/draft)
+        script = draft.get("script", "")
 
-        # 1 — B-roll images
+        # 1 — B-roll images: deterministic hybrid sourcing
         from verticals.scrape import download_image
         import uuid
         from PIL import Image, ImageOps
-        from verticals.config import VIDEO_WIDTH, VIDEO_HEIGHT
-        
-        frames = []
+
+        # Step 1: Download & validate scraped images (cap at 3)
         scraped_images = req.scraped_images
         downloaded_imgs = []
-        
+
         for i, img_url in enumerate(scraped_images):
             if len(downloaded_imgs) >= 3:
                 break
-                
+
             if img_url.startswith("data:"):
                 continue
 
             try:
                 out_path = work_dir / f"scraped_{i}_{uuid.uuid4().hex[:6]}.jpg"
                 download_image(img_url, out_path)
-                
-                # Check for valid image formatting
+
+                # Validate image
                 img = Image.open(out_path).convert("RGB")
-                orig_w, orig_h = img.size
-                
-                # Filter out absurdly small images (e.g. 10x10 tracking pixels)
-                if orig_w < 100 or orig_h < 100:
-                    raise ValueError(f"Image too small: {orig_w}x{orig_h}")
-                
-                downloaded_imgs.append((out_path, img))
+                if img.width < 100 or img.height < 100:
+                    raise ValueError(f"Image too small: {img.width}x{img.height}")
+
+                # Pad to master resolution (letterbox)
+                padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
+                padded.save(out_path)
+                downloaded_imgs.append(out_path)
             except Exception as e:
-                # Catch invalid PIL parses, timeouts, connection blocks, or tiny tracked images.
                 print(f"Failed to use scraped image {img_url[:60]}... : {e}")
-                
-        # Step 2: Establish Master Resolution
-        if downloaded_imgs:
-            first_img = downloaded_imgs[0][1]
-            master_w = first_img.width if first_img.width % 2 == 0 else first_img.width - 1
-            master_h = first_img.height if first_img.height % 2 == 0 else first_img.height - 1
-            print(f"Set dynamically master resolution to {master_w}x{master_h}")
-        else:
-            master_w, master_h = VIDEO_WIDTH, VIDEO_HEIGHT
-            
-        # Step 3: Pad all downloaded images to the master resolution
-        for out_path, img in downloaded_imgs:
-            # Resize with padding (letterbox) to fit perfectly within master_w x master_h without cropping
-            padded = ImageOps.pad(img, (master_w, master_h), color=(0, 0, 0))
-            padded.save(out_path)
-            frames.append(out_path)
-                
+
+        # Step 2: Build frames list — scraped images first
+        frames = list(downloaded_imgs)
+
+        # Step 3: Fill shortfall with AI-generated images
         shortfall = 3 - len(frames)
         if shortfall > 0:
-            prompts = draft.get("broll_prompts", ["Cinematic landscape"] * 3)
+            prompts = draft.get("broll_prompts") or []
+            # Guarantee at least 3 prompts
+            while len(prompts) < 3:
+                prompts.append("Cinematic landscape related to the topic")
+
+            # Use prompts for the remaining slot positions
+            target_prompts = prompts[len(frames):len(frames) + shortfall]
+
             ai_frames = generate_broll(
-                prompts[:shortfall],
+                target_prompts,
                 work_dir,
             )
-            # Pad AI frames to master resolution too
+            # Pad AI frames to master resolution
             for af in ai_frames:
                 img = Image.open(af).convert("RGB")
-                padded = ImageOps.pad(img, (master_w, master_h), color=(0, 0, 0))
+                padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
                 padded.save(af)
-                
+
             frames.extend(ai_frames)
+
+        # Guarantee exactly 3 frames
+        frames = frames[:3]
+        print(f"Final frame count: {len(frames)} (scraped: {len(downloaded_imgs)}, ai: {len(frames) - len(downloaded_imgs)})")
 
         # 2 — Voiceover (TTS)
         voice_config = get_voice_config(profile, provider=tts_provider, lang=lang)

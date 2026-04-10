@@ -77,6 +77,8 @@ def _call_sarvam(script: str, lang: str, api_key: str) -> bytes:
     """Call Sarvam AI TTS API."""
     # Sarvam expects 'hi-IN' or 'en-IN'
     target_lang = "hi-IN" if lang == "hi" else "en-IN"
+    # Use different speakers per language for natural-sounding output
+    speaker = "shubh" if lang == "hi" else "rahul"
     
     r = requests.post(
         "https://api.sarvam.ai/text-to-speech",
@@ -84,7 +86,7 @@ def _call_sarvam(script: str, lang: str, api_key: str) -> bytes:
         json={
             "inputs": [script],
             "target_language_code": target_lang,
-            "speaker": "shubh",
+            "speaker": speaker,
             "model": "bulbul:v3"
         },
         timeout=60,
