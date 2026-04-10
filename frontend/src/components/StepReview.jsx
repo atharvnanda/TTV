@@ -25,6 +25,8 @@ export default function StepReview({ draftData, onProduceComplete }) {
         tts_provider: 'elevenlabs',
         image_provider: 'gemini',
         lang: draftData?.draft?.lang || 'en',
+        duration: draftData?.settings?.duration || '20-25',
+        uploaded_images: draftData?.draft?.uploaded_images || [],
       };
 
       const response = await fetch('http://localhost:8000/api/produce', {

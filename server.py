@@ -29,6 +29,7 @@ from verticals.broll import generate_broll
 from verticals.tts import generate_voiceover
 from verticals.captions import generate_captions
 from verticals.music import select_and_prepare_music
+from verticals.log import log
 from verticals.assemble import assemble_video
 from verticals.niche import (
     load_niche,
@@ -66,6 +67,7 @@ class DraftRequest(BaseModel):
     input_mode: str = "topic"                # "topic" | "direct_text" | "url"
     content: str                              # the topic string OR raw script text OR url
     target_words: str = "180-200"             # word count range for LLM script
+    uploaded_images: list[str] = []           # base64 encoded images from frontend
 
 
 class ProduceRequest(BaseModel):
@@ -75,6 +77,8 @@ class ProduceRequest(BaseModel):
     tts_provider: str | None = "elevenlabs"
     image_provider: str | None = "gemini"
     lang: str = "en"
+    duration: str = "20-25"
+    uploaded_images: list[str] = []
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -159,7 +163,27 @@ def api_draft(req: DraftRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     job_id = _new_job_id()
+    
+    # Handle uploaded images if any
+    uploaded_paths = []
+    if req.uploaded_images:
+        import base64
+        import uuid
+        work_dir = MEDIA_DIR / f"work_{job_id}"
+        work_dir.mkdir(parents=True, exist_ok=True)
+        for i, b64_str in enumerate(req.uploaded_images):
+            try:
+                if "," in b64_str:
+                    b64_str = b64_str.split(",")[1]
+                data = base64.b64decode(b64_str)
+                path = work_dir / f"uploaded_{i}_{uuid.uuid4().hex[:6]}.jpg"
+                path.write_bytes(data)
+                uploaded_paths.append(str(path))
+            except Exception as e:
+                print(f"Failed to save uploaded image {i}: {e}")
+
     draft["job_id"] = job_id
+    draft["uploaded_images"] = uploaded_paths
     draft["tts_provider"] = req.tts_provider
     draft["image_provider"] = req.image_provider
 
@@ -170,6 +194,7 @@ def api_draft(req: DraftRequest) -> dict:
             "script": draft.get("script", ""),
             "broll_prompts": draft.get("broll_prompts", []),
             "scraped_images": draft.get("scraped_images", []),
+            "uploaded_images": draft.get("uploaded_images", []),
             "lang": draft.get("lang", "en"),
             "job_id": job_id
         }
@@ -212,13 +237,40 @@ def api_produce(req: ProduceRequest) -> dict:
         import uuid
         from PIL import Image, ImageOps
 
-        # Step 1: Download & validate scraped images (cap at 3 unique ones)
+        # Map duration to target image count
+        IMAGE_COUNTS = {
+            '20-25': 3,
+            '45-50': 4,
+            '60': 5,
+            '90': 5,
+            '120': 6
+        }
+        target_count = IMAGE_COUNTS.get(req.duration, 3)
+        log(f"   - Building b-roll: target {target_count} frames (duration: {req.duration})")
+
+        # Step 1: Prioritize Uploaded Images (if any)
+        frames = []
+        for i, up_path in enumerate(req.uploaded_images):
+            if len(frames) >= target_count:
+                break
+            try:
+                p = Path(up_path)
+                if p.exists():
+                    # Move/Copy to current job work_dir for self-containment
+                    new_path = work_dir / f"uploaded_{i}_{uuid.uuid4().hex[:6]}.jpg"
+                    img = Image.open(p).convert("RGB")
+                    padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
+                    padded.save(new_path)
+                    frames.append(new_path)
+            except Exception as e:
+                print(f"Failed to process uploaded image {up_path}: {e}")
+
+        # Step 2: Download & validate scraped images (if target not reached)
         scraped_images = req.scraped_images
-        downloaded_imgs = []
         seen_sizes = set()
 
         for i, img_url in enumerate(scraped_images):
-            if len(downloaded_imgs) >= 3:
+            if len(frames) >= target_count:
                 break
 
             if img_url.startswith("data:"):
@@ -233,39 +285,35 @@ def api_produce(req: ProduceRequest) -> dict:
                 if img.width < 100 or img.height < 100:
                     raise ValueError(f"Image too small: {img.width}x{img.height}")
 
-                # Deduplicate by file size (catch OG vs Body duplicates that URL normalization missed)
+                # Deduplicate by file size
                 file_size = out_path.stat().st_size
                 if file_size in seen_sizes:
-                    print(f"Skipping duplicate image (same size): {img_url[:60]}...")
                     continue
                 seen_sizes.add(file_size)
 
-                # Pad to master resolution (letterbox)
+                # Pad to master resolution
                 padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
                 padded.save(out_path)
-                downloaded_imgs.append(out_path)
+                frames.append(out_path)
             except Exception as e:
                 print(f"Failed to use scraped image {img_url[:60]}... : {e}")
 
-        # Step 2: Build frames list — scraped images first
-        frames = list(downloaded_imgs)
-
         # Step 3: Fill shortfall with AI-generated images
-        shortfall = 3 - len(frames)
+        shortfall = target_count - len(frames)
         if shortfall > 0:
             prompts = draft.get("broll_prompts") or []
-            # Guarantee at least 3 prompts
-            while len(prompts) < 3:
+            # Ensure we have enough prompts
+            while len(prompts) < target_count:
                 prompts.append("Cinematic landscape related to the topic")
 
-            # Use prompts for the remaining slot positions
-            target_prompts = prompts[len(frames):len(frames) + shortfall]
+            # Offset prompts to skip the slots already filled by photos
+            target_prompts = prompts[len(frames):target_count]
 
             ai_frames = generate_broll(
                 target_prompts,
                 work_dir,
             )
-            # Pad AI frames to master resolution
+            # Pad AI frames
             for af in ai_frames:
                 img = Image.open(af).convert("RGB")
                 padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
@@ -273,9 +321,9 @@ def api_produce(req: ProduceRequest) -> dict:
 
             frames.extend(ai_frames)
 
-        # Guarantee exactly 3 frames
-        frames = frames[:3]
-        print(f"Final frame count: {len(frames)} (scraped: {len(downloaded_imgs)}, ai: {len(frames) - len(downloaded_imgs)})")
+        # Final guarantee
+        frames = frames[:target_count]
+        print(f"Final frame count: {len(frames)}")
 
         # 2 — Voiceover (TTS)
         voice_config = get_voice_config(profile, provider=tts_provider, lang=lang)

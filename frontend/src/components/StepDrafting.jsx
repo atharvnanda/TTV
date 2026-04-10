@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { Loader2, Sparkles, Clock, AlignLeft, Type, Video, Link as LinkIcon } from 'lucide-react';
+import { Loader2, Sparkles, Clock, AlignLeft, Type, Video, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
 import clsx from 'clsx';
 
 const DURATION_OPTIONS = [
@@ -16,9 +16,31 @@ export default function StepDrafting({ onDraftComplete }) {
   const [mode, setMode] = useState('topic'); // 'topic' | 'text' | 'url'
   const [content, setContent] = useState('');
   const [duration, setDuration] = useState('20-25');
+  const [uploadedImages, setUploadedImages] = useState([]);
+
+  const IMAGE_LIMITS = {
+    '20-25': 3,
+    '45-50': 4,
+    '60': 5,
+    '90': 5,
+    '120': 6
+  };
+  const maxImg = IMAGE_LIMITS[duration] || 3;
+  const isOverLimit = uploadedImages.length > maxImg;
+
+  const handleImageUpload = (e) => {
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setUploadedImages(prev => [...prev, reader.result]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
 
   const handleGenerate = async () => {
-    if (!content.trim()) return;
+    if (!content.trim() || isOverLimit) return;
     setLoading(true);
 
     const selectedDuration = DURATION_OPTIONS.find(d => d.value === duration);
@@ -37,6 +59,7 @@ export default function StepDrafting({ onDraftComplete }) {
           image_provider: 'gemini',
           tts_provider: 'elevenlabs',
           target_words: selectedDuration?.words || '180-200',
+          uploaded_images: uploadedImages,
         })
       });
 
@@ -164,6 +187,50 @@ export default function StepDrafting({ onDraftComplete }) {
               </div>
             )}
         </div>
+
+        {/* Image Upload for Text Mode */}
+        {mode === 'text' && (
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-semibold text-foreground flex items-center gap-2">
+                <ImageIcon className="w-4 h-4 text-primary" />
+                Upload Background Images (Optional)
+              </label>
+              <span className={clsx(
+                "text-xs font-medium px-2 py-0.5 rounded-full",
+                isOverLimit ? "bg-red-500/10 text-red-500" : "bg-primary/10 text-primary"
+              )}>
+                {uploadedImages.length} / {maxImg} images
+              </span>
+            </div>
+            
+            <input 
+              type="file" 
+              multiple 
+              accept="image/*"
+              onChange={handleImageUpload}
+              className="w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-primary/10 file:text-primary hover:file:bg-primary/20"
+            />
+
+            {isOverLimit && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg flex items-start gap-2">
+                <div className="mt-0.5 text-yellow-500 text-sm">⚠️</div>
+                <p className="text-xs text-yellow-600 font-medium">
+                  You have exceeded the number of images for this duration. Only upload {maxImg} images.
+                </p>
+              </div>
+            )}
+            
+            {uploadedImages.length > 0 && (
+              <button 
+                onClick={() => setUploadedImages([])}
+                className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground hover:text-red-500 transition-colors"
+              >
+                Clear all uploads
+              </button>
+            )}
+          </div>
+        )}
 
         <button 
           onClick={handleGenerate}

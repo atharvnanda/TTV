@@ -29,12 +29,18 @@ def _whisper_word_timestamps(audio_path: Path, lang: str = "en") -> list[dict]:
         log("Whisper not installed — skipping word timestamps")
         return []
 
-    log("Running Whisper for word-level timestamps...")
-    model = whisper.load_model("base")
+    log(f"Running Whisper for word-level timestamps (lang: {lang[:2]})...")
+    # Using 'small' model for better Hindi/Urdu distinction
+    model = whisper.load_model("small")
+    
+    # Biasing the model towards Hindi script specifically if lang is 'hi'
+    initial_prompt = "नमस्ते, यह एक हिंदी वीडियो है।" if lang[:2] == "hi" else None
+
     result = model.transcribe(
         str(audio_path),
         language=lang[:2],
         word_timestamps=True,
+        initial_prompt=initial_prompt
     )
 
     words = []
