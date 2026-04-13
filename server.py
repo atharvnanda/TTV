@@ -73,12 +73,11 @@ class DraftRequest(BaseModel):
 class ProduceRequest(BaseModel):
     edited_script: str
     edited_broll_prompts: list[str]
-    scraped_images: list[str] = []
+    review_images: list[str] = []
     tts_provider: str | None = "elevenlabs"
     image_provider: str | None = "gemini"
     lang: str = "en"
     duration: str = "20-25"
-    uploaded_images: list[str] = []
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -146,7 +145,8 @@ def api_draft(req: DraftRequest) -> dict:
                 lang=lang,
                 target_words=req.target_words,
             )
-            draft["scraped_images"] = scrape_data["images"]
+            # Store raw urls, we will process them right below
+            _scrape_images_raw = scrape_data["images"]
             draft["lang"] = lang
 
         else:
@@ -163,14 +163,46 @@ def api_draft(req: DraftRequest) -> dict:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     job_id = _new_job_id()
+    work_dir = MEDIA_DIR / f"work_{job_id}"
+    work_dir.mkdir(parents=True, exist_ok=True)
     
+    # Process scraped images if any
+    valid_scraped_urls = []
+    if req.input_mode == "url" and "_scrape_images_raw" in locals():
+        from verticals.scrape import download_image
+        import uuid
+        from PIL import Image, ImageOps
+        seen_sizes = set()
+        
+        for i, img_url in enumerate(_scrape_images_raw):
+            if img_url.startswith("data:"):
+                continue
+            try:
+                out_path = work_dir / f"scraped_{i}_{uuid.uuid4().hex[:6]}.jpg"
+                download_image(img_url, out_path)
+
+                img = Image.open(out_path).convert("RGB")
+                if img.width < 100 or img.height < 100:
+                    raise ValueError(f"Image too small: {img.width}x{img.height}")
+
+                file_size = out_path.stat().st_size
+                if file_size in seen_sizes:
+                    continue
+                seen_sizes.add(file_size)
+
+                padded = ImageOps.pad(img, (1920, 1080), color=(0, 0, 0))
+                padded.save(out_path)
+                
+                valid_scraped_urls.append(f"http://localhost:8000/media/work_{job_id}/{out_path.name}")
+            except Exception as e:
+                print(f"Failed to use scraped image {img_url[:60]}... : {e}")
+
     # Handle uploaded images if any
-    uploaded_paths = []
+    uploaded_urls = []
     if req.uploaded_images:
         import base64
         import uuid
-        work_dir = MEDIA_DIR / f"work_{job_id}"
-        work_dir.mkdir(parents=True, exist_ok=True)
+        from PIL import Image, ImageOps 
         for i, b64_str in enumerate(req.uploaded_images):
             try:
                 if "," in b64_str:
@@ -178,12 +210,19 @@ def api_draft(req: DraftRequest) -> dict:
                 data = base64.b64decode(b64_str)
                 path = work_dir / f"uploaded_{i}_{uuid.uuid4().hex[:6]}.jpg"
                 path.write_bytes(data)
-                uploaded_paths.append(str(path))
+                
+                # Pre-pad to master resolution
+                img = Image.open(path).convert("RGB")
+                padded = ImageOps.pad(img, (1920, 1080), color=(0, 0, 0))
+                padded.save(path)
+
+                uploaded_urls.append(f"http://localhost:8000/media/work_{job_id}/{path.name}")
             except Exception as e:
                 print(f"Failed to save uploaded image {i}: {e}")
 
     draft["job_id"] = job_id
-    draft["uploaded_images"] = uploaded_paths
+    draft["scraped_images"] = valid_scraped_urls if "_scrape_images_raw" in locals() else []
+    draft["uploaded_images"] = uploaded_urls
     draft["tts_provider"] = req.tts_provider
     draft["image_provider"] = req.image_provider
 
@@ -248,55 +287,41 @@ def api_produce(req: ProduceRequest) -> dict:
         target_count = IMAGE_COUNTS.get(req.duration, 3)
         log(f"   - Building b-roll: target {target_count} frames (duration: {req.duration})")
 
-        # Step 1: Prioritize Uploaded Images (if any)
+        # Step 1: Process Review Images (priority images from frontend)
         frames = []
-        for i, up_path in enumerate(req.uploaded_images):
+        for i, img_data in enumerate(req.review_images):
             if len(frames) >= target_count:
                 break
+                
             try:
-                p = Path(up_path)
-                if p.exists():
-                    # Move/Copy to current job work_dir for self-containment
-                    new_path = work_dir / f"uploaded_{i}_{uuid.uuid4().hex[:6]}.jpg"
-                    img = Image.open(p).convert("RGB")
+                new_path = work_dir / f"review_{i}_{uuid.uuid4().hex[:6]}.jpg"
+                
+                if img_data.startswith("data:"):
+                    # New manual upload inside StepReview
+                    import base64
+                    b64_str = img_data.split(",")[1] if "," in img_data else img_data
+                    new_path.write_bytes(base64.b64decode(b64_str))
+                    img = Image.open(new_path).convert("RGB")
+                    padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
+                    padded.save(new_path)
+                    frames.append(new_path)
+                elif img_data.startswith("http://localhost:8000/media/"):
+                    # Existing pre-processed file from draft step
+                    rel_path = img_data.replace("http://localhost:8000/media/", "")
+                    local_path = MEDIA_DIR / rel_path
+                    if local_path.exists():
+                        # Already padded in draft step, copy it
+                        shutil.copy(local_path, new_path)
+                        frames.append(new_path)
+                else:
+                    # Fallback for generic URLs
+                    download_image(img_data, new_path)
+                    img = Image.open(new_path).convert("RGB")
                     padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
                     padded.save(new_path)
                     frames.append(new_path)
             except Exception as e:
-                print(f"Failed to process uploaded image {up_path}: {e}")
-
-        # Step 2: Download & validate scraped images (if target not reached)
-        scraped_images = req.scraped_images
-        seen_sizes = set()
-
-        for i, img_url in enumerate(scraped_images):
-            if len(frames) >= target_count:
-                break
-
-            if img_url.startswith("data:"):
-                continue
-
-            try:
-                out_path = work_dir / f"scraped_{i}_{uuid.uuid4().hex[:6]}.jpg"
-                download_image(img_url, out_path)
-
-                # Validate image
-                img = Image.open(out_path).convert("RGB")
-                if img.width < 100 or img.height < 100:
-                    raise ValueError(f"Image too small: {img.width}x{img.height}")
-
-                # Deduplicate by file size
-                file_size = out_path.stat().st_size
-                if file_size in seen_sizes:
-                    continue
-                seen_sizes.add(file_size)
-
-                # Pad to master resolution
-                padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
-                padded.save(out_path)
-                frames.append(out_path)
-            except Exception as e:
-                print(f"Failed to use scraped image {img_url[:60]}... : {e}")
+                print(f"Failed to process review image {img_data[:60]}... : {e}")
 
         # Step 3: Fill shortfall with AI-generated images
         shortfall = target_count - len(frames)

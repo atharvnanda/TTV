@@ -188,8 +188,8 @@ export default function StepDrafting({ onDraftComplete }) {
             )}
         </div>
 
-        {/* Image Upload for Text Mode */}
-        {mode === 'text' && (
+        {/* Image Upload for Text and URL Mode */}
+        {(mode === 'text' || mode === 'url') && (
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <label className="text-sm font-semibold text-foreground flex items-center gap-2">
@@ -222,12 +222,34 @@ export default function StepDrafting({ onDraftComplete }) {
             )}
             
             {uploadedImages.length > 0 && (
-              <button 
-                onClick={() => setUploadedImages([])}
-                className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground hover:text-red-500 transition-colors"
-              >
-                Clear all uploads
-              </button>
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap gap-3">
+                  {uploadedImages.map((img, idx) => (
+                    <div key={idx} className="relative w-16 h-16 rounded-md overflow-hidden border border-border group/img">
+                      <img src={img} alt={`Upload ${idx}`} className="w-full h-full object-cover" />
+                      <button 
+                        onClick={() => {
+                          const newImgs = [...uploadedImages];
+                          newImgs.splice(idx, 1);
+                          setUploadedImages(newImgs);
+                        }}
+                        className="absolute top-1 right-1 bg-black/60 text-white p-1 rounded-full opacity-0 group-hover/img:opacity-100 transition-opacity hover:bg-red-500"
+                        title="Remove image"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => setUploadedImages([])}
+                  className="text-[10px] uppercase tracking-widest font-bold text-muted-foreground hover:text-red-500 transition-colors self-start"
+                >
+                  Clear all uploads
+                </button>
+              </div>
             )}
           </div>
         )}

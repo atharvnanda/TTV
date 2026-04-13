@@ -125,6 +125,7 @@ RULES:
 - Never use any of the NEVER USE phrases
 - The 'script' field must contain the full spoken narration, not just a summary, title, or headline.
 - B-roll prompts must follow the visual guidance (style, mood, preferred subjects)
+- B-roll prompts MUST NEVER feature or mention real people or specific real-world individuals to comply with safety guardrails. Use generic human subjects or objects only.
 
 Output JSON exactly:
 {{
