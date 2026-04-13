@@ -13,7 +13,7 @@ script:
       template: "This just happened and you need to know about it."
       when: "recent event"
     - id: explainer
-      template: "Let me explain {topic} in 60 seconds."
+      template: "Everything you need to know about {topic}."
       when: "complex topic requiring explanation"
     - id: question
       template: "Why is everyone talking about {topic}? Here's the real story."

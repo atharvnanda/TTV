@@ -121,7 +121,7 @@ RULES:
 - Anti-hallucination: only use names, scores, events found in research above
 - Follow the TONE, PACING, and HOOK PATTERNS from the niche profile above
 - Pick the most appropriate hook pattern for this specific topic
-- Use one of the CTA OPTIONS at the end
+- Use one of the CTA OPTIONS at the end (if language is hindi, change cta options to hindi as well)
 - Never use any of the NEVER USE phrases
 - The 'script' field must contain the full spoken narration, not just a summary, title, or headline.
 - B-roll prompts must follow the visual guidance (style, mood, preferred subjects)
