@@ -54,7 +54,8 @@ export default function StepReview({ draftData, onProduceComplete }) {
         duration: duration,
       };
 
-      const response = await fetch('http://localhost:8000/api/produce', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+      const response = await fetch(`${API_BASE_URL}/api/produce`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -72,7 +73,7 @@ export default function StepReview({ draftData, onProduceComplete }) {
       }
     } catch (err) {
       console.error(err);
-      alert("Error reaching backend. Is localhost:8000/api/produce running?");
+      alert("Error reaching backend.");
     } finally {
       setLoading(false);
     }

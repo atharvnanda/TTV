@@ -18,6 +18,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # ── verticals internals ────────────────────────────────────────────────────────
@@ -41,9 +42,11 @@ from verticals.niche import (
 # ── app setup ─────────────────────────────────────────────────────────────────
 app = FastAPI(title="Verticals API", version="1.0.0")
 
+from verticals.config import settings
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten in production
+    allow_origins=settings.ALLOWED_ORIGINS.split(","),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,7 +99,33 @@ def _save_draft(draft: dict, job_id: str) -> Path:
     return out_path
 
 
+# ── cleanup ───────────────────────────────────────────────────────────────────
+def _cleanup_old_data(hours: int = 1):
+    """Delete old files and folders in MEDIA_DIR to save disk space."""
+    if not MEDIA_DIR.exists():
+        return
+    now = time.time()
+    for item in MEDIA_DIR.iterdir():
+        try:
+            if item.is_dir() and item.name.startswith("work_"):
+                if (now - item.stat().st_mtime) > (hours * 3600):
+                    shutil.rmtree(item, ignore_errors=True)
+            elif item.is_file() and item.suffix in [".mp4", ".srt"]:
+                if (now - item.stat().st_mtime) > (hours * 3600):
+                    item.unlink(missing_ok=True)
+        except Exception as e:
+            print(f"Cleanup error on {item}: {e}")
+
 # ── endpoints ─────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+def health_check():
+    try:
+        from verticals.config import settings
+        _ = settings.GEMINI_API_KEY
+        return {"status": "ok", "timestamp": time.time(), "keys_valid": True}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 @app.post("/api/draft")
 def api_draft(req: DraftRequest) -> dict:
@@ -107,6 +136,8 @@ def api_draft(req: DraftRequest) -> dict:
     - input_mode="direct_text" → bypass research, feed text straight to LLM
     - input_mode="url"         → scrape article text and images, feed text to LLM
     """
+    _cleanup_old_data(hours=1)
+    
     try:
         if req.input_mode == "direct_text":
             # Detect language from user-provided text
@@ -193,7 +224,7 @@ def api_draft(req: DraftRequest) -> dict:
                 padded = ImageOps.pad(img, (1920, 1080), color=(0, 0, 0))
                 padded.save(out_path)
                 
-                valid_scraped_urls.append(f"http://localhost:8000/media/work_{job_id}/{out_path.name}")
+                valid_scraped_urls.append(f"/media/work_{job_id}/{out_path.name}")
             except Exception as e:
                 print(f"Failed to use scraped image {img_url[:60]}... : {e}")
 
@@ -216,7 +247,7 @@ def api_draft(req: DraftRequest) -> dict:
                 padded = ImageOps.pad(img, (1920, 1080), color=(0, 0, 0))
                 padded.save(path)
 
-                uploaded_urls.append(f"http://localhost:8000/media/work_{job_id}/{path.name}")
+                uploaded_urls.append(f"/media/work_{job_id}/{path.name}")
             except Exception as e:
                 print(f"Failed to save uploaded image {i}: {e}")
 
@@ -305,9 +336,9 @@ def api_produce(req: ProduceRequest) -> dict:
                     padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
                     padded.save(new_path)
                     frames.append(new_path)
-                elif img_data.startswith("http://localhost:8000/media/"):
+                elif img_data.startswith("/media/"):
                     # Existing pre-processed file from draft step
-                    rel_path = img_data.replace("http://localhost:8000/media/", "")
+                    rel_path = img_data.replace("/media/", "")
                     local_path = MEDIA_DIR / rel_path
                     if local_path.exists():
                         # Already padded in draft step, copy it
@@ -395,8 +426,21 @@ def api_produce(req: ProduceRequest) -> dict:
         filename = video_path.name
         return {
             "status": "success",
-            "video_url": f"http://localhost:8000/media/{filename}"
+            "video_url": f"/media/{filename}"
         }
 
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+# ── serve frontend (production) ───────────────────────────────────────────────
+FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
+
+if FRONTEND_DIST.exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="frontend_assets")
+    
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        file_path = FRONTEND_DIST / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(FRONTEND_DIST / "index.html")

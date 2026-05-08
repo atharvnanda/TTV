@@ -7,14 +7,36 @@ import subprocess
 import sys
 from pathlib import Path
 
+from pydantic_settings import BaseSettings
+
 # ─────────────────────────────────────────────────────
-# Skill home directory — all data lives here
+# Environment Validation & API Keys
 # ─────────────────────────────────────────────────────
-SKILL_DIR = Path.home() / ".verticals"
+class AppSettings(BaseSettings):
+    GEMINI_API_KEY: str
+    ANTHROPIC_API_KEY: str = ""
+    ELEVENLABS_API_KEY: str = ""
+    SARVAM_API_KEY: str = ""
+    ALLOWED_ORIGINS: str = "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173"
+    
+    class Config:
+        env_file = ".env"
+
+try:
+    settings = AppSettings()
+except Exception as e:
+    print(f"Environment Validation Error: {e}")
+    sys.exit(1)
+
+# ─────────────────────────────────────────────────────
+# Data directory — all data lives here now locally
+# ─────────────────────────────────────────────────────
+PROJECT_ROOT = Path(__file__).parents[1]
+SKILL_DIR = PROJECT_ROOT / "data"
 DRAFTS_DIR = SKILL_DIR / "drafts"
 MEDIA_DIR = SKILL_DIR / "media"
 LOGS_DIR = SKILL_DIR / "logs"
-CONFIG_FILE = SKILL_DIR / "config.json"
+CONFIG_FILE = PROJECT_ROOT / ".env"
 
 # ─────────────────────────────────────────────────────
 # Video constants
@@ -76,28 +98,17 @@ def extract_keywords(text: str) -> str:
 # ─────────────────────────────────────────────────────
 # API key resolution — env → config.json
 # ─────────────────────────────────────────────────────
-def _get_key(name: str) -> str:
-    """Resolve an API key: environment variable first, then config.json."""
-    val = os.environ.get(name)
-    if val:
-        return val
-    if CONFIG_FILE.exists():
-        try:
-            cfg = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            val = cfg.get(name)
-            if val:
-                return val
-        except Exception:
-            pass
-    return ""
-
-
 def get_anthropic_key() -> str:
-    return _get_key("ANTHROPIC_API_KEY")
+    return settings.ANTHROPIC_API_KEY
 
+def get_elevenlabs_key() -> str:
+    return settings.ELEVENLABS_API_KEY
 
-def get_newsapi_key() -> str:
-    return _get_key("NEWSAPI_KEY")
+def get_sarvam_key() -> str:
+    return settings.SARVAM_API_KEY
+
+def get_gemini_key() -> str:
+    return settings.GEMINI_API_KEY
 
 
 # ─────────────────────────────────────────────────────
@@ -222,15 +233,6 @@ def get_best_h264_encoder() -> str:
     except Exception:
         return "libx264"
 
-
-def get_elevenlabs_key() -> str:
-    return _get_key("ELEVENLABS_API_KEY")
-
-def get_sarvam_key() -> str:
-    return _get_key("SARVAM_API_KEY")
-
-def get_gemini_key() -> str:
-    return _get_key("GEMINI_API_KEY")
 
 
 def get_youtube_token_path() -> Path:

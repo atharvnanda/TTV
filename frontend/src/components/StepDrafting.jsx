@@ -46,7 +46,8 @@ export default function StepDrafting({ onDraftComplete }) {
     const selectedDuration = DURATION_OPTIONS.find(d => d.value === duration);
 
     try {
-      const response = await fetch('http://localhost:8000/api/draft', {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+      const response = await fetch(`${API_BASE_URL}/api/draft`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -82,7 +83,7 @@ export default function StepDrafting({ onDraftComplete }) {
       }
     } catch (err) {
       console.error(err);
-      alert("Error reaching backend. Is localhost:8000 running?");
+      alert("Error reaching backend.");
     } finally {
       setLoading(false);
     }
