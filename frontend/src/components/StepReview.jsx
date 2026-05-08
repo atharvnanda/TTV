@@ -43,7 +43,6 @@ export default function StepReview({ draftData, onProduceComplete }) {
     setLoading(true);
 
     try {
-      // Data Contract payload
       const payload = {
         edited_script: script,
         edited_broll_prompts: brollPrompts,
@@ -63,18 +62,40 @@ export default function StepReview({ draftData, onProduceComplete }) {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) {
-        throw new Error('Production failed');
-      }
+      if (!response.ok) throw new Error('Production failed');
 
       const resJson = await response.json();
-      if (resJson.status === 'success') {
-        onProduceComplete({ video_url: resJson.video_url });
+      
+      if (resJson.status === 'processing') {
+        const jobId = resJson.job_id;
+        
+        // Start polling
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`${API_BASE_URL}/api/status/${jobId}`);
+            if (!statusRes.ok) return;
+            const statusData = await statusRes.json();
+            
+            if (statusData.status === 'success') {
+              clearInterval(pollInterval);
+              setLoading(false);
+              onProduceComplete({ video_url: statusData.video_url });
+            } else if (statusData.status === 'error') {
+              clearInterval(pollInterval);
+              setLoading(false);
+              alert("Error during video generation: " + statusData.error);
+            }
+          } catch (e) {
+            console.error("Polling error", e);
+          }
+        }, 3000);
+      } else {
+        setLoading(false);
+        alert("Unexpected response from server.");
       }
     } catch (err) {
       console.error(err);
       alert("Error reaching backend.");
-    } finally {
       setLoading(false);
     }
   };

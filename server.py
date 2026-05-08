@@ -15,7 +15,7 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -271,54 +271,26 @@ def api_draft(req: DraftRequest) -> dict:
     }
 
 
-@app.post("/api/produce")
-def api_produce(req: ProduceRequest) -> dict:
-    """
-    Run TTS → b-roll → captions → music → assemble.
-
-    Accepts the (possibly edited) draft JSON from the frontend.
-    Returns { "filename": "verticals_<job_id>_en.mp4", "url": "/media/..." }
-    """
-    lang = req.lang
-    draft = {
-        "script": req.edited_script,
-        "broll_prompts": req.edited_broll_prompts,
-    }
-    job_id = _new_job_id()
-
-    # Resolve providers — frontend selection wins over draft defaults
+def process_video_task(req: ProduceRequest, job_id: str, lang: str, draft: dict):
     tts_provider = req.tts_provider or "sarvam"
     niche_name = "general"
-
-    # Fixed landscape master resolution
     MASTER_W, MASTER_H = 1920, 1080
-
+    status_file = MEDIA_DIR / f"status_{job_id}.json"
+    
     try:
         profile = load_niche(niche_name)
-
         work_dir = MEDIA_DIR / f"work_{job_id}_{lang}"
         work_dir.mkdir(parents=True, exist_ok=True)
-
-        # Use the script as-is (already in the correct language from /api/draft)
         script = draft.get("script", "")
 
-        # 1 — B-roll images: deterministic hybrid sourcing
         from verticals.scrape import download_image
         import uuid
         from PIL import Image, ImageOps
 
-        # Map duration to target image count
-        IMAGE_COUNTS = {
-            '20-25': 3,
-            '45-50': 4,
-            '60': 5,
-            '90': 5,
-            '120': 6
-        }
+        IMAGE_COUNTS = {'20-25': 3, '45-50': 4, '60': 5, '90': 5, '120': 6}
         target_count = IMAGE_COUNTS.get(req.duration, 3)
         log(f"   - Building b-roll: target {target_count} frames (duration: {req.duration})")
 
-        # Step 1: Process Review Images (priority images from frontend)
         frames = []
         for i, img_data in enumerate(req.review_images):
             if len(frames) >= target_count:
@@ -326,9 +298,7 @@ def api_produce(req: ProduceRequest) -> dict:
                 
             try:
                 new_path = work_dir / f"review_{i}_{uuid.uuid4().hex[:6]}.jpg"
-                
                 if img_data.startswith("data:"):
-                    # New manual upload inside StepReview
                     import base64
                     b64_str = img_data.split(",")[1] if "," in img_data else img_data
                     new_path.write_bytes(base64.b64decode(b64_str))
@@ -337,15 +307,12 @@ def api_produce(req: ProduceRequest) -> dict:
                     padded.save(new_path)
                     frames.append(new_path)
                 elif img_data.startswith("/media/"):
-                    # Existing pre-processed file from draft step
                     rel_path = img_data.replace("/media/", "")
                     local_path = MEDIA_DIR / rel_path
                     if local_path.exists():
-                        # Already padded in draft step, copy it
                         shutil.copy(local_path, new_path)
                         frames.append(new_path)
                 else:
-                    # Fallback for generic URLs
                     download_image(img_data, new_path)
                     img = Image.open(new_path).convert("RGB")
                     padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
@@ -354,83 +321,73 @@ def api_produce(req: ProduceRequest) -> dict:
             except Exception as e:
                 print(f"Failed to process review image {img_data[:60]}... : {e}")
 
-        # Step 3: Fill shortfall with AI-generated images
         shortfall = target_count - len(frames)
         if shortfall > 0:
             prompts = draft.get("broll_prompts") or []
-            # Ensure we have enough prompts
             while len(prompts) < target_count:
                 prompts.append("Cinematic landscape related to the topic")
-
-            # Offset prompts to skip the slots already filled by photos
             target_prompts = prompts[len(frames):target_count]
-
-            ai_frames = generate_broll(
-                target_prompts,
-                work_dir,
-            )
-            # Pad AI frames
+            ai_frames = generate_broll(target_prompts, work_dir)
             for af in ai_frames:
                 img = Image.open(af).convert("RGB")
                 padded = ImageOps.pad(img, (MASTER_W, MASTER_H), color=(0, 0, 0))
                 padded.save(af)
-
             frames.extend(ai_frames)
 
-        # Final guarantee
         frames = frames[:target_count]
         print(f"Final frame count: {len(frames)}")
 
-        # 2 — Voiceover (TTS)
         voice_config = get_voice_config(profile, provider=tts_provider, lang=lang)
-        vo_path = generate_voiceover(
-            script, work_dir, lang,
-            provider=tts_provider,
-            voice_config=voice_config,
-        )
+        vo_path = generate_voiceover(script, work_dir, lang, provider=tts_provider, voice_config=voice_config)
 
-        # 3 — Captions (Whisper)
         caption_config = get_caption_config(profile)
-        captions_result = generate_captions(
-            vo_path, work_dir, lang,
-            highlight_color=caption_config.get("highlight_color", "#FFFF00"),
-            words_per_group=caption_config.get("words_per_group", 4),
-        )
+        captions_result = generate_captions(vo_path, work_dir, lang, highlight_color=caption_config.get("highlight_color", "#FFFF00"), words_per_group=caption_config.get("words_per_group", 4))
 
-        # 4 — Background music
         music_config = get_music_config(profile)
-        music_result = select_and_prepare_music(
-            vo_path, work_dir,
-            duck_speech=music_config.get("duck_volume_speech", 0.12),
-            duck_gap=music_config.get("duck_volume_gap", 0.25),
-        )
+        music_result = select_and_prepare_music(vo_path, work_dir, duck_speech=music_config.get("duck_volume_speech", 0.12), duck_gap=music_config.get("duck_volume_gap", 0.25))
 
-        # 5 — FFmpeg assembly
-        video_path = assemble_video(
-            frames=frames,
-            voiceover=vo_path,
-            out_dir=work_dir,
-            job_id=job_id,
-            lang=lang,
-            ass_path=captions_result.get("ass_path"),
-            music_path=music_result.get("track_path"),
-            duck_filter=music_result.get("duck_filter"),
-        )
+        video_path = assemble_video(frames=frames, voiceover=vo_path, out_dir=work_dir, job_id=job_id, lang=lang, ass_path=captions_result.get("ass_path"), music_path=music_result.get("track_path"), duck_filter=music_result.get("duck_filter"))
 
-        # Copy SRT alongside media
         srt_src = captions_result.get("srt_path", "")
         if srt_src and Path(srt_src).exists():
             final_srt = MEDIA_DIR / f"verticals_{job_id}_{lang}.srt"
             shutil.copy(srt_src, final_srt)
 
         filename = video_path.name
-        return {
-            "status": "success",
-            "video_url": f"/media/{filename}"
-        }
+        status_file.write_text(json.dumps({"status": "success", "video_url": f"/media/{filename}"}))
 
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        status_file.write_text(json.dumps({"status": "error", "error": str(exc)}))
+        print(f"Background task failed: {exc}")
+
+
+@app.post("/api/produce")
+def api_produce(req: ProduceRequest, background_tasks: BackgroundTasks) -> dict:
+    """
+    Triggers background TTS → b-roll → captions → music → assemble.
+    Returns { "status": "processing", "job_id": "..." }
+    """
+    lang = req.lang
+    draft = {
+        "script": req.edited_script,
+        "broll_prompts": req.edited_broll_prompts,
+    }
+    job_id = _new_job_id()
+    
+    background_tasks.add_task(process_video_task, req, job_id, lang, draft)
+    
+    return {
+        "status": "processing",
+        "job_id": job_id
+    }
+
+@app.get("/api/status/{job_id}")
+def api_status(job_id: str) -> dict:
+    """Check the status of a background produce task."""
+    status_file = MEDIA_DIR / f"status_{job_id}.json"
+    if not status_file.exists():
+        return {"status": "processing"}
+    return json.loads(status_file.read_text())
 
 # ── serve frontend (production) ───────────────────────────────────────────────
 FRONTEND_DIST = Path(__file__).parent / "frontend" / "dist"
