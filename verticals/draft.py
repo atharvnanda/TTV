@@ -45,6 +45,12 @@ def generate_draft(
     # Research — skip DuckDuckGo when caller provides text directly
     research = _research_override if _research_override is not None else research_topic(news)
 
+    MAX_RESEARCH_WORDS = 1000
+    research_words = research.split()
+    if len(research_words) > MAX_RESEARCH_WORDS:
+        research = " ".join(research_words[:MAX_RESEARCH_WORDS])
+        research += "\n\n[Article truncated for length — summarize from the above.]"
+
     # Platform config
     platform_key = platform if platform != "all" else "shorts"
     platform_cfg = PLATFORM_CONFIGS.get(platform_key, PLATFORM_CONFIGS["shorts"])

@@ -10,6 +10,7 @@ export default function StepReview({ draftData, onProduceComplete }) {
     ...(draftData?.draft?.scraped_images || []),
     ...(draftData?.draft?.uploaded_images || [])
   ]);
+  const isProducingRef = useRef(false);
 
   const IMAGE_LIMITS = {
     '20-25': 3,
@@ -40,6 +41,8 @@ export default function StepReview({ draftData, onProduceComplete }) {
   };
 
   const handleProduce = async () => {
+    if (isProducingRef.current) return;
+    isProducingRef.current = true;
     setLoading(true);
 
     try {
@@ -83,6 +86,7 @@ export default function StepReview({ draftData, onProduceComplete }) {
             } else if (statusData.status === 'error') {
               clearInterval(pollInterval);
               setLoading(false);
+              isProducingRef.current = false;
               alert("Error during video generation: " + statusData.error);
             }
           } catch (e) {
@@ -91,12 +95,14 @@ export default function StepReview({ draftData, onProduceComplete }) {
         }, 3000);
       } else {
         setLoading(false);
+        isProducingRef.current = false;
         alert("Unexpected response from server.");
       }
     } catch (err) {
       console.error(err);
       alert("Error reaching backend.");
       setLoading(false);
+      isProducingRef.current = false;
     }
   };
 

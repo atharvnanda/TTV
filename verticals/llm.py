@@ -6,6 +6,9 @@ Provider selection: --provider flag or LLM_PROVIDER env var or config.json.
 
 import json
 import os
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env
 
 from .config import (
     get_anthropic_client,

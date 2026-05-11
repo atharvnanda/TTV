@@ -6,6 +6,9 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env
 
 from pydantic_settings import BaseSettings
 
@@ -17,6 +20,9 @@ class AppSettings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     ELEVENLABS_API_KEY: str = ""
     SARVAM_API_KEY: str = ""
+    PEXELS_API_KEY: str = ""
+    GROQ_API_KEY: str = ""
+    OPENAI_API_KEY: str = ""
     ALLOWED_ORIGINS: str = "http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://127.0.0.1:5173"
     
     class Config:

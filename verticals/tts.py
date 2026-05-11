@@ -6,6 +6,9 @@ macOS say is the last-resort fallback.
 """
 
 import os
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env
 from pathlib import Path
 
 import requests

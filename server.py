@@ -14,6 +14,9 @@ import json
 import shutil
 import time
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv() # Load environment variables from .env
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
